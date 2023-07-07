@@ -1,0 +1,72 @@
+- hosts: all
+  gather_facts: no
+  become: no
+  vars:
+    ansible_user: cloud-user
+  tasks:
+
+    - name: Install packages
+      tags: install
+      dnf:
+        name:
+          - tigervnc-server
+      become: yes
+
+    - name: Install Xfce desktop
+      tags: install
+      yum:
+        name: '@Xfce'
+      become: yes
+
+    - name: Create vncpassword
+      become: no
+      shell:
+        cmd: "vncpasswd -f {{ vnc_password }}"
+      
+    - name: Disable screensaver # as users might not have passwords
+      yum:
+        name: xfce4-screensaver
+        state: absent
+
+    - name: Configure vnc
+      copy:
+        dest: ~/.vnc/config
+        content: |
+          session=gnome
+          geometry=1920x1200
+    
+    - name: Configure xstartup
+      copy:
+        dest: ~/.vnc/xstartup
+        content: |
+          #!/bin/bash
+
+          xrdb $HOME/.Xresources
+          autocutsel -fork
+          startxfce4 &
+
+    - name: Map ansible_user to first VNC display
+      lineinfile:
+        path: /etc/tigervnc/vncserver.users
+        line: ":1={{ ansible_user }}"
+        regexp: "^:1="
+      become: yes
+
+    - name: Force login screen to use Xorg
+      community.general.ini_file:
+        path: /etc/gdm/custom.conf
+        section: daemon
+        option: WaylandEnable
+        value: 'false'
+        no_extra_spaces: true
+      tags: wayland
+
+    - name: Enable VNC server for user
+      command:
+        cmd: systemctl enable vncserver@:1.service
+      become: yes
+    
+    - name: Start VNC server for user
+      command:
+        cmd: systemctl start vncserver@:1.service
+      become: yes
